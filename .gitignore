@@ -1,0 +1,4 @@
+*.sw?
+
+# You'll probably want to keep the config.json if you fork this project.
+config.json
