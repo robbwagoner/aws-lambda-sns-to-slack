@@ -12,7 +12,7 @@ import requests
 __author__ = "Robb Wagoner (@robbwagoner)"
 __copyright__ = "Copyright 2015 Robb Wagoner"
 __credits__ = ["Robb Wagoner"]
-__license__ = "GPL"
+__license__ = "Apache License, 2.0"
 __version__ = "0.1.0"
 __maintainer__ = "Robb Wagoner"
 __email__ = "robb.wagoner+github@gmail.com"
