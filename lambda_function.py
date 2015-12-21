@@ -203,7 +203,7 @@ def lambda_handler(event, context):
         'text': message,
         'channel': get_slack_channel(region, event_src, event_env, event_sev), 
         'username': get_slack_username(event_src), 
-        'icon_emoji': get_slack_emoji(event_src, event_sev) }
+        'icon_emoji': get_slack_emoji(event_src, event_sev, event_cond.lower()) }
     if attachments:
         payload['attachments'] = attachments
     print('DEBUG:', payload)
