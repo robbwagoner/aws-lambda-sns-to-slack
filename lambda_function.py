@@ -13,47 +13,75 @@ __author__ = "Robb Wagoner (@robbwagoner)"
 __copyright__ = "Copyright 2015 Robb Wagoner"
 __credits__ = ["Robb Wagoner"]
 __license__ = "Apache License, 2.0"
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __maintainer__ = "Robb Wagoner"
-__email__ = "robb.wagoner+github@gmail.com"
+__email__ = "robb@pandastrike.com"
 __status__ = "Production"
 
-def get_slack_emoji(event_type):
-    '''Map an event type to an emoji
+DEFAULT_USERNAME = 'AWS Lambda'
+DEFAULT_CHANNEL = '#webhook-tests'
+
+def get_slack_emoji(event_src, event_sev, event_cond = 'default'):
+    '''Map an event source, severity, and condition to an emoji
     '''
     emoji_map = {
-        'alerts': ':fire:'}
-    try:
-        return emoji_map[event_type]
-    except KeyError:
-        return ':mantelpiece_clock:'
+        'autoscaling': {
+            'notices': {'default': ':scales:'}},
+        'cloudwatch': {
+            'notices': {
+                'ok': ':ok:',
+                'alarm': ':fire:',
+                'insuffcient_data': ':question:'},
+            'alerts': {
+                'ok': ':ok:',
+                'alarm': ':fire:',
+                'insuffcient_data': ':question:'}},
+        'elasticache': {
+            'notices': { 'default': ':stopwatch:'}},
+        'rds': {
+            'notices': { 'default': ':registered:'}}}
 
-def get_slack_username(event_source):
+    try:
+        return emoji_map[event_src][event_sev][event_cond]
+    except KeyError:
+        if event_sev == 'alerts':
+            return ':fire:'
+        else:
+            return ':information_source:'
+
+def get_slack_username(event_src):
     '''Map event source to the Slack username
     '''
     username_map = {
         'cloudwatch': 'AWS CloudWatch',
         'autoscaling': 'AWS AutoScaling',
-        'elasticache': 'AWS ElastiCache' }
-    try:
-        return username_map[event_source]
-    except KeyError:
-        return 'AWS Lambda'
+        'elasticache': 'AWS ElastiCache',
+        'rds': 'AWS RDS' }
 
-def get_slack_channel(region, event_env, event_type):
+    try:
+        return username_map[event_src]
+    except KeyError:
+        return DEFAULT_USERNAME
+
+def get_slack_channel(region, event_src, event_env, event_sev):
     '''Map region and event type to Slack channel name
     '''
+    if event_src == 'autoscaling':
+        event_map = {
+            'notices': 'autoscaling',
+            'alerts': 'alerts'}
+    else:
+        event_map = {
+            'notices': 'events',
+            'events': 'events',
+            'alerts': 'alerts'}
     channel_map = {
-        'production': {
-            'alerts': '#alerts-{}'.format(region),
-            'events': '#events-{}'.format(region) },
-        'staging': {
-            'alerts': '#alerts-staging-{}'.format(region),
-            'events': '#events-staging-{}'.format(region) } }
+        'production': '#{}-{}'.format(event_map[event_sev], region),
+        'staging': '#staging-notifications' }
     try:
-        return channel_map[event_env][event_type]
+        return channel_map[event_env]
     except KeyError:
-        return '#events-{region}'.format(region=region)
+        return DEFAULT_CHANNEL
 
 def autoscaling_capacity_change(cause):
     '''
@@ -61,15 +89,14 @@ def autoscaling_capacity_change(cause):
     s = re.search(r'capacity from (\w+ to \w+)', cause)
     if s:
         return s.group(0)
-    else:
-        return '--'
 
 def lambda_handler(event, context):
     '''The Lambda function handler
     '''
     with open('config.json') as f:
         config = json.load(f)
-    
+
+    event_cond = 'default'
     sns = event['Records'][0]['Sns']
     print('DEBUG:', sns['Message'])
     json_msg = json.loads(sns['Message'])
@@ -82,7 +109,8 @@ def lambda_handler(event, context):
     # https://api.slack.com/docs/attachments
     attachments = []
     if json_msg.get('AlarmName'):
-        event_source = 'cloudwatch'
+        event_src = 'cloudwatch'
+        event_cond = json_msg['NewStateValue']
         color_map = {
             'OK': 'good',
             'INSUFFICIENT_DATA': 'warning',
@@ -91,7 +119,7 @@ def lambda_handler(event, context):
         attachments = [{
             'fallback': json_msg,
             'message': json_msg,
-            'color': color_map[json_msg['NewStateValue']],
+            'color': color_map[event_cond],
             "fields": [{
               "title": "Alarm",
               "value": json_msg['AlarmName'],
@@ -107,50 +135,75 @@ def lambda_handler(event, context):
             }]
         }]
     elif json_msg.get('Cause'):
-        event_source = 'autoscaling'
+        event_src = 'autoscaling'
         attachments = [{
             "text": "Details",
             "fallback": message,
             "color": "good",
             "fields": [{
-              "title": "Capacity Change",
-              "value": autoscaling_capacity_change(json_msg['Cause']),
-              "short": True
-            }, {
-              "title": "Event",
-              "value": json_msg['Event'],
-              "short": False
-            }, {
-              "title": "Cause",
-              "value": json_msg['Cause'],
-              "short": False
+                "title": "Capacity Change",
+                "value": autoscaling_capacity_change(json_msg['Cause']),
+                "short": True
+            },{
+                "title": "Event",
+                "value": json_msg['Event'],
+                "short": False
+            },{
+                "title": "Cause",
+                "value": json_msg['Cause'],
+                "short": False
             }]
         }]
     elif json_msg.get('ElastiCache:SnapshotComplete'):
-        event_source = 'elasticache'
+        event_src = 'elasticache'
         attachments = [{
             "text": "Details",
             "fallback": message,
-            "color": "good"
+            "color": "good",
+            "fields": [{
+                "title": "Event",
+                "value": "ElastiCache Snapshot"
+            },{
+                "title": "Message",
+                "value": "Snapshot Complete" 
+            }]
         }]
+    elif re.match("RDS",sns.get('Subject','')):
+        event_src = 'rds'
+        attachments = [{
+            "fields": [{
+                "title": "Source",
+                "value": json_msg['Event Source'] 
+                },{
+                "title": "Message",
+                "value": json_msg['Event Message'] 
+                }]}]
+        if json_msg.get('Identifier Link'):
+            attachments.append({
+                "text": "Details",
+                "title": json_msg['Identifier Link'].split('\n')[1],
+                "title_link": json_msg['Identifier Link'].split('\n')[0]})
     else:
-        event_source = 'other' 
+        event_src = 'other' 
 
+    # SNS Topic ARN: arn:aws:sns:<REGION>:<AWS_ACCOUNT_ID>:<TOPIC_NAME>
+    #
     # SNS Topic Names => Slack Channels
     #  <env>-alerts => alerts-<region>
     #  <env>-notices => events-<region>
+    #
+    region = sns['TopicArn'].split(':')[3]
     topic_name = sns['TopicArn'].split(':')[-1]
     event_env = topic_name.split('-')[0]
-    event_type = topic_name.split('-')[-1]
-    region = sns['TopicArn'].split(':')[3]
+    event_sev = topic_name.split('-')[1]
 
-    print('DEBUG:',topic_name,event_type,region)
+    print('DEBUG:',topic_name,region,event_env,event_sev,event_src)
 
     payload = {
         'text': message,
-        'channel': get_slack_channel(region, event_env, event_type), 
-        'username': get_slack_username(event_source), 
-        'icon_emoji': get_slack_emoji(event_type) }
+        'channel': get_slack_channel(region, event_src, event_env, event_sev), 
+        'username': get_slack_username(event_src), 
+        'icon_emoji': get_slack_emoji(event_src, event_sev) }
     if attachments:
         payload['attachments'] = attachments
     print('DEBUG:', payload)
@@ -172,7 +225,7 @@ if __name__ == '__main__':
         "Signature": "EXAMPLE",
         "SigningCertUrl": "EXAMPLE",
         "MessageId": "95df01b4-ee98-5cb9-9903-4c221d41eb5e",
-        "Message": "{\"AlarmName\":\"sns-slack-test-from-cloudwatch-total-cpu\",\"AlarmDescription\":null,\"AWSAccountId\":\"259222253036\",\"NewStateValue\":\"OK\",\"NewStateReason\":\"Threshold Crossed: 1 datapoint (7.9053535353535365) was not greater than or equal to the threshold (8.0).\",\"StateChangeTime\":\"2015-11-09T21:19:43.454+0000\",\"Region\":\"US - N. Virginia\",\"OldStateValue\":\"ALARM\",\"Trigger\":{\"MetricName\":\"CPUUtilization\",\"Namespace\":\"AWS/EC2\",\"Statistic\":\"AVERAGE\",\"Unit\":null,\"Dimensions\":[],\"Period\":300,\"EvaluationPeriods\":1,\"ComparisonOperator\":\"GreaterThanOrEqualToThreshold\",\"Threshold\":8.0}}",
+        "Message": "{\"AlarmName\":\"sns-slack-test-from-cloudwatch-total-cpu\",\"AlarmDescription\":null,\"AWSAccountId\":\"123456789012\",\"NewStateValue\":\"OK\",\"NewStateReason\":\"Threshold Crossed: 1 datapoint (7.9053535353535365) was not greater than or equal to the threshold (8.0).\",\"StateChangeTime\":\"2015-11-09T21:19:43.454+0000\",\"Region\":\"US - N. Virginia\",\"OldStateValue\":\"ALARM\",\"Trigger\":{\"MetricName\":\"CPUUtilization\",\"Namespace\":\"AWS/EC2\",\"Statistic\":\"AVERAGE\",\"Unit\":null,\"Dimensions\":[],\"Period\":300,\"EvaluationPeriods\":1,\"ComparisonOperator\":\"GreaterThanOrEqualToThreshold\",\"Threshold\":8.0}}",
         "MessageAttributes": {
           "Test": {
             "Type": "String",
@@ -185,7 +238,7 @@ if __name__ == '__main__':
         },
         "Type": "Notification",
         "UnsubscribeUrl": "EXAMPLE",
-        "TopicArn": "arn:aws:sns:us-east-1:123456789012:staging-notices",
+        "TopicArn": "arn:aws:sns:us-east-1:123456789012:production-notices",
         "Subject": "OK: sns-slack-test-from-cloudwatch-total-cpu"
       }
     }

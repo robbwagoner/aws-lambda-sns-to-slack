@@ -49,18 +49,6 @@ The Lambda Function can be named whatever you like.
 Installing/updating the Lambda Function can be done using the AWS CLI.
 There are [more](https://github.com/gene1wood/cfnlambda) [Pythonic](https://github.com/PitchBook/pylambda) ways of doing so however.
 
-### Copy .zip file to S3
-
-If you using a virtualenv (you should), then the following command will upload a .zip file of the SNS-to-Slack Lambda function using the AWS CLI and a credential profile named `my_profile`:
-
-```shell
-zip -u ~/sns-to-slack.zip lambda_function.py config.json
-pushd $VIRTUAL_ENV/lib/python2.7/site-packages
-zip -u -r ~/sns-to-slack.zip .
-popd
-aws --profile my_profile s3 cp ~/sns-to-slack.zip s3://my-lambda-us-east-1/
-```
-
 ### Create the SNS-to-Slack Lambda function
 
 You can do all of this via the AWS Lambda console, but if you are more automation oriented a rough outline of steps follows:
@@ -69,13 +57,29 @@ You can do all of this via the AWS Lambda console, but if you are more automatio
 
 The Lambda function requires an IAM Role to execute. 
 You can create this in the AWS IAM console or the AWS CLI. 
-I leave that to the viewer.
-The Role name `lambda_basic_execution` is created by the AWS Lambda console. 
 
-The ARN: *arn:aws:iam::<AWS_ACCOUNT_ID>:role/lambda_basic_execution*
+```shell
+$ aws iam create-role --role-name lambda_basic_execution --assume-role-policy-document '{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}'
+```
 
-```json
-{
+#### IAM Role Policy
+
+To permit the IAM Role above to execute and put logs in CloudWatch Logs:
+
+```shell
+aws iam put-role-policy --role-name lambda_basic_execution --policy-name lambda_basic_execution --policy-document '{
   "Version": "2012-10-17",
   "Statement": [
     {
@@ -88,30 +92,61 @@ The ARN: *arn:aws:iam::<AWS_ACCOUNT_ID>:role/lambda_basic_execution*
       "Resource": "arn:aws:logs:*:*:*"
     }
   ]
-}
+}'
 ```
+
+
+The Role name `lambda_basic_execution` is created by the AWS Lambda console. 
+
+The ARN: *arn:aws:iam::<AWS_ACCOUNT_ID>:role/lambda_basic_execution*
+
+#### Create a .zip file of SNS-to-Slack for upload to Lambda
+
+If you using a virtualenv (you should), then the following command will upload a .zip file of the SNS-to-Slack Lambda function using the AWS CLI and a credential profile named `my_profile`:
+
+```shell
+zip -u sns-to-slack.zip lambda_function.py config.json
+pushd $VIRTUAL_ENV/lib/python2.7/site-packages
+zip -u -r $OLDPWD/sns-to-slack.zip . --exclude pip\* --exclude setuptools\*
+popd
+```
+
 #### Create the function with the AWS CLI
 
 ```shell
 aws lambda create-function \
- --profile my_profile \
  --function-name sns-to-slack \
- --runtime python \
- --role lambda_basic_execution \
+ --runtime python2.7 \
+ --role arn:aws:iam::<AWS_ACCOUNT_ID>:role/lambda_basic_execution \
  --handler lambda_function.lambda_handler \
- --zip-file ~/sns-to-slack.zip \
- --description "Send SNS events to Slack"
+ --zip-file fileb://./sns-to-slack.zip \
+ --description "Send SNS events to Slack" \
+ --memory-size 128 \
+ --timeout 3
  ```
 
 ### Update an existing Lambda function
 
 ```shell
 aws lambda update-function-code \
-  --profile my_profile \
-  --region us-east-1 \
-  --function-name arn:aws:lambda:us-east-1:<AWS_ACCOUNT_ID>:function:sns-to-slack \
-  --s3-bucket my-lambda-us-east-1 \
-  --s3-key sns-to-slack.zip
+  --function-name function:sns-to-slack \
+  --zip-file fileb://./sns-to-slack.zip
+```
+
+
+### Create version aliases for development, test, staging, production, etc
+
+```shell
+aws lambda create-alias \
+  --function-name sns-to-slack \
+  --description "development version" \
+  --function-version "\$LATEST" \
+  --name development
+```
+
+```shell
+aws lambda publish-version \
+  --function-name sns-to-slack
 ```
 
 ### Lambda Resources
