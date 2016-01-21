@@ -6,14 +6,32 @@ It uses a single Slack webhook URL and overrides the Slack username, icon, and e
 
 ## Configuration
 
-### Slack
-Create a webhook integration in your Slack account.
-Name the integration something meaningful like *AWS Lambda sns-to-slack*.
-Copy the *Webhook URL* for the integration you just created.
+### Create a webhook integration in your Slack account.
+1. Navigate to https://<your-team-domain>.slack.com/services/new
+
+2. Search for and select "Incoming WebHooks".
+
+3. Choose the default channel where messages will be sent and click "Add Incoming WebHooks Integration".
+
+4. Copy the webhook URL from the setup instructions and use it in the next section.
+
+5. Name the integration something meaningful like *AWS Lambda sns-to-slack*.
+
+### Encrypt Slack webhook URL with KMS key
+1. Create a KMS key - http://docs.aws.amazon.com/kms/latest/developerguide/create-keys.html.
+
+2. Encrypt the event collector token using the AWS CLI.
+```shell
+    $ aws kms encrypt --key-id alias/<KMS key name> --plaintext "<SLACK_HOOK_URL>"
+```
+
+Note: You must exclude the protocol from the URL (e.g. "hooks.slack.com/services/abc123").
+
+3. Copy the base-64 encoded, encrypted key (CiphertextBlob) and add it to the `encrypted_webhook_url` key in the next section.
 
 ### This project's configuration file
 
-Copy `config.json.example` to `config.json` and update the `slack_webhook_url` key to the Slack integration URL that you copied above.
+Copy `config.json.example` to `config.json` and update the `encrypted_webhook_url` key to the encrypted Slack URL that you copied above.
 
 ### Create your Slack channels
 
@@ -45,7 +63,7 @@ In the meantime, a simplistic test is:
 python lambda_function.py
 ```
 
-The Lambda Function can be named whatever you like. 
+The Lambda Function can be named whatever you like.
 Installing/updating the Lambda Function can be done using the AWS CLI.
 There are [more](https://github.com/gene1wood/cfnlambda) [Pythonic](https://github.com/PitchBook/pylambda) ways of doing so however.
 
@@ -55,8 +73,8 @@ You can do all of this via the AWS Lambda console, but if you are more automatio
 
 #### Lambda IAM Role for execution
 
-The Lambda function requires an IAM Role to execute. 
-You can create this in the AWS IAM console or the AWS CLI. 
+The Lambda function requires an IAM Role to execute.
+You can create this in the AWS IAM console or the AWS CLI.
 
 ```shell
 $ aws iam create-role --role-name lambda_basic_execution --assume-role-policy-document '{
@@ -96,7 +114,7 @@ aws iam put-role-policy --role-name lambda_basic_execution --policy-name lambda_
 ```
 
 
-The Role name `lambda_basic_execution` is created by the AWS Lambda console. 
+The Role name `lambda_basic_execution` is created by the AWS Lambda console.
 
 The ARN: *arn:aws:iam::<AWS_ACCOUNT_ID>:role/lambda_basic_execution*
 

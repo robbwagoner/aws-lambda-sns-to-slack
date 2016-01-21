@@ -4,16 +4,18 @@ Parse an SNS event message and send to a Slack Channel
 '''
 from __future__ import print_function
 
+import boto3
 import json
 import re
-
 import requests
+
+from base64 import b64decode
 
 __author__ = "Robb Wagoner (@robbwagoner)"
 __copyright__ = "Copyright 2015 Robb Wagoner"
 __credits__ = ["Robb Wagoner"]
 __license__ = "Apache License, 2.0"
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __maintainer__ = "Robb Wagoner"
 __email__ = "robb@pandastrike.com"
 __status__ = "Production"
@@ -21,7 +23,8 @@ __status__ = "Production"
 DEFAULT_USERNAME = 'AWS Lambda'
 DEFAULT_CHANNEL = '#webhook-tests'
 
-def get_slack_emoji(event_src, event_sev, event_cond = 'default'):
+
+def get_slack_emoji(event_src, event_sev, event_cond='default'):
     '''Map an event source, severity, and condition to an emoji
     '''
     emoji_map = {
@@ -37,9 +40,9 @@ def get_slack_emoji(event_src, event_sev, event_cond = 'default'):
                 'alarm': ':fire:',
                 'insuffcient_data': ':question:'}},
         'elasticache': {
-            'notices': { 'default': ':stopwatch:'}},
+            'notices': {'default': ':stopwatch:'}},
         'rds': {
-            'notices': { 'default': ':registered:'}}}
+            'notices': {'default': ':registered:'}}}
 
     try:
         return emoji_map[event_src][event_sev][event_cond]
@@ -49,6 +52,7 @@ def get_slack_emoji(event_src, event_sev, event_cond = 'default'):
         else:
             return ':information_source:'
 
+
 def get_slack_username(event_src):
     '''Map event source to the Slack username
     '''
@@ -56,12 +60,13 @@ def get_slack_username(event_src):
         'cloudwatch': 'AWS CloudWatch',
         'autoscaling': 'AWS AutoScaling',
         'elasticache': 'AWS ElastiCache',
-        'rds': 'AWS RDS' }
+        'rds': 'AWS RDS'}
 
     try:
         return username_map[event_src]
     except KeyError:
         return DEFAULT_USERNAME
+
 
 def get_slack_channel(region, event_src, event_env, event_sev):
     '''Map region and event type to Slack channel name
@@ -77,11 +82,12 @@ def get_slack_channel(region, event_src, event_env, event_sev):
             'alerts': 'alerts'}
     channel_map = {
         'production': '#{}-{}'.format(event_map[event_sev], region),
-        'staging': '#staging-notifications' }
+        'staging': '#staging-notifications'}
     try:
         return channel_map[event_env]
     except KeyError:
         return DEFAULT_CHANNEL
+
 
 def autoscaling_capacity_change(cause):
     '''
@@ -89,6 +95,7 @@ def autoscaling_capacity_change(cause):
     s = re.search(r'capacity from (\w+ to \w+)', cause)
     if s:
         return s.group(0)
+
 
 def lambda_handler(event, context):
     '''The Lambda function handler
@@ -121,17 +128,17 @@ def lambda_handler(event, context):
             'message': json_msg,
             'color': color_map[event_cond],
             "fields": [{
-              "title": "Alarm",
-              "value": json_msg['AlarmName'],
-              "short": True
+                "title": "Alarm",
+                "value": json_msg['AlarmName'],
+                "short": True
             }, {
-              "title": "Status",
-              "value": json_msg['NewStateValue'],
-              "short": True
+                "title": "Status",
+                "value": json_msg['NewStateValue'],
+                "short": True
             }, {
-              "title": "Reason",
-              "value": json_msg['NewStateReason'],
-              "short": False
+                "title": "Reason",
+                "value": json_msg['NewStateReason'],
+                "short": False
             }]
         }]
     elif json_msg.get('Cause'):
@@ -144,11 +151,11 @@ def lambda_handler(event, context):
                 "title": "Capacity Change",
                 "value": autoscaling_capacity_change(json_msg['Cause']),
                 "short": True
-            },{
+            }, {
                 "title": "Event",
                 "value": json_msg['Event'],
                 "short": False
-            },{
+            }, {
                 "title": "Cause",
                 "value": json_msg['Cause'],
                 "short": False
@@ -163,20 +170,20 @@ def lambda_handler(event, context):
             "fields": [{
                 "title": "Event",
                 "value": "ElastiCache Snapshot"
-            },{
+            }, {
                 "title": "Message",
-                "value": "Snapshot Complete" 
+                "value": "Snapshot Complete"
             }]
         }]
-    elif re.match("RDS",sns.get('Subject','')):
+    elif re.match("RDS", sns.get('Subject', '')):
         event_src = 'rds'
         attachments = [{
             "fields": [{
                 "title": "Source",
-                "value": json_msg['Event Source'] 
+                "value": json_msg['Event Source']
                 },{
                 "title": "Message",
-                "value": json_msg['Event Message'] 
+                "value": json_msg['Event Message']
                 }]}]
         if json_msg.get('Identifier Link'):
             attachments.append({
@@ -184,7 +191,7 @@ def lambda_handler(event, context):
                 "title": json_msg['Identifier Link'].split('\n')[1],
                 "title_link": json_msg['Identifier Link'].split('\n')[0]})
     else:
-        event_src = 'other' 
+        event_src = 'other'
 
     # SNS Topic ARN: arn:aws:sns:<REGION>:<AWS_ACCOUNT_ID>:<TOPIC_NAME>
     #
@@ -197,17 +204,20 @@ def lambda_handler(event, context):
     event_env = topic_name.split('-')[0]
     event_sev = topic_name.split('-')[1]
 
-    print('DEBUG:',topic_name,region,event_env,event_sev,event_src)
+    print('DEBUG:', topic_name, region, event_env, event_sev, event_src)
+
+    WEBHOOK_URL = "https://" + boto3.client('kms').decrypt(
+        CiphertextBlob=b64decode(config['encrypted_webhook_url']))['Plaintext']
 
     payload = {
         'text': message,
-        'channel': get_slack_channel(region, event_src, event_env, event_sev), 
-        'username': get_slack_username(event_src), 
-        'icon_emoji': get_slack_emoji(event_src, event_sev, event_cond.lower()) }
+        'channel': get_slack_channel(region, event_src, event_env, event_sev),
+        'username': get_slack_username(event_src),
+        'icon_emoji': get_slack_emoji(event_src, event_sev, event_cond.lower())}
     if attachments:
         payload['attachments'] = attachments
     print('DEBUG:', payload)
-    r = requests.post(config['slack_webhook_url'], json=payload)
+    r = requests.post(WEBHOOK_URL, json=payload)
     return r.status_code
 
 # Test locally
@@ -245,5 +255,4 @@ if __name__ == '__main__':
   ]
 }""")
     print('running locally')
-    print(lambda_handler(sns_event_template,None))
-
+    print(lambda_handler(sns_event_template, None))
