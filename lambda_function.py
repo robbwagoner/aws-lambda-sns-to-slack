@@ -24,7 +24,7 @@ DEFAULT_USERNAME = 'AWS Lambda'
 DEFAULT_CHANNEL = '#webhook-tests'
 
 
-def get_slack_emoji(event_src, event_sev, event_cond='default'):
+def get_slack_emoji(event_src, topic_name, event_cond='default'):
     '''Map an event source, severity, and condition to an emoji
     '''
     emoji_map = {
@@ -45,9 +45,9 @@ def get_slack_emoji(event_src, event_sev, event_cond='default'):
             'notices': {'default': ':registered:'}}}
 
     try:
-        return emoji_map[event_src][event_sev][event_cond]
+        return emoji_map[event_src][topic_name][event_cond]
     except KeyError:
-        if event_sev == 'alerts':
+        if topic_name == 'alerts':
             return ':fire:'
         else:
             return ':information_source:'
@@ -68,23 +68,11 @@ def get_slack_username(event_src):
         return DEFAULT_USERNAME
 
 
-def get_slack_channel(region, event_src, event_env, event_sev):
+def get_slack_channel(region, event_src, topic_name, channel_map):
     '''Map region and event type to Slack channel name
     '''
-    if event_src == 'autoscaling':
-        event_map = {
-            'notices': 'autoscaling',
-            'alerts': 'alerts'}
-    else:
-        event_map = {
-            'notices': 'events',
-            'events': 'events',
-            'alerts': 'alerts'}
-    channel_map = {
-        'production': '#{}-{}'.format(event_map[event_sev], region),
-        'staging': '#staging-notifications'}
     try:
-        return channel_map[event_env]
+        return channel_map[topic_name]
     except KeyError:
         return DEFAULT_CHANNEL
 
@@ -175,7 +163,7 @@ def lambda_handler(event, context):
                 "value": "Snapshot Complete"
             }]
         }]
-    elif re.match("RDS", sns.get('Subject', '')):
+    elif re.match("RDS", sns.get('Subject') or ''):
         event_src = 'rds'
         attachments = [{
             "fields": [{
@@ -201,19 +189,21 @@ def lambda_handler(event, context):
     #
     region = sns['TopicArn'].split(':')[3]
     topic_name = sns['TopicArn'].split(':')[-1]
-    event_env = topic_name.split('-')[0]
-    event_sev = topic_name.split('-')[1]
+    # event_env = topic_name.split('-')[0]
+    # event_sev = topic_name.split('-')[1]
 
-    print('DEBUG:', topic_name, region, event_env, event_sev, event_src)
+    # print('DEBUG:', topic_name, region, event_env, event_sev, event_src)
 
     WEBHOOK_URL = "https://" + boto3.client('kms').decrypt(
         CiphertextBlob=b64decode(config['encrypted_webhook_url']))['Plaintext']
 
+    channel_map = config['channel_map']
+
     payload = {
         'text': message,
-        'channel': get_slack_channel(region, event_src, event_env, event_sev),
+        'channel': get_slack_channel(region, event_src, topic_name, channel_map),
         'username': get_slack_username(event_src),
-        'icon_emoji': get_slack_emoji(event_src, event_sev, event_cond.lower())}
+        'icon_emoji': get_slack_emoji(event_src, topic_name, event_cond.lower())}
     if attachments:
         payload['attachments'] = attachments
     print('DEBUG:', payload)
