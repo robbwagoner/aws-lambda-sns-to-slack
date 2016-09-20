@@ -1,3 +1,7 @@
 {
-  "encrypted_webhook_url": "<KMS Encrypted Slack Webhook URL>"
+  "encrypted_webhook_url": "<KMS Encrypted Slack Webhook URL>",
+  "channel_map": {
+    "bounces": "#ses-bounces",
+    "complaints": "#ses-bounces"
+  }
 }

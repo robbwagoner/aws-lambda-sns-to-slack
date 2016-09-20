@@ -37,14 +37,7 @@ Copy `config.json.example` to `config.json` and update the `encrypted_webhook_ur
 
 Slack channels have a limit of 21 characters.
 You'll want to namespace your channels accordingly.
-At the moment the SNS topic name maps to the Slack channel name.
-I intend to change this behavior.
-In the meantime, however the mapping is this:
-
-| SNS topic name | Slack channel name |
-| --- | --- |
-| `production-alerts` | `#alerts-<AWS_REGION>` |
-| `production-events` | `#events-<AWS_REGION>` |
+`channel_map` setting is the mapping from the SNS topic name to the channel name.
 
 
 ### Emoji
