@@ -8,6 +8,7 @@ import boto3
 import json
 import re
 import requests
+import os
 
 from base64 import b64decode
 
@@ -88,8 +89,11 @@ def autoscaling_capacity_change(cause):
 def lambda_handler(event, context):
     '''The Lambda function handler
     '''
-    with open('config.json') as f:
-        config = json.load(f)
+    if 'LAMBDA_CONFIG' in os.environ:
+        config = json.loads(os.getenv('LAMBDA_CONFIG'))
+    else:    
+        with open('config.json') as f:
+            config = json.load(f)
 
     event_cond = 'default'
     sns = event['Records'][0]['Sns']
